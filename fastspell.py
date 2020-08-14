@@ -5,6 +5,7 @@ import collections
 import enchant
 import nltk
 import pandas as pd
+
 from gensim.models.fasttext import FastText, load_facebook_vectors
 
 
