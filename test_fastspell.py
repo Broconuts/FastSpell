@@ -11,5 +11,5 @@ def test_vocabulary():
     embeddings.
     """
     fs = fastspell.FastSpell("data/pnlp_data.csv")
-    for word in fs.frequency_list.elements:
+    for word in fs.frequency_list.elements():
         assert word in fs.embeddings.wv.vocab

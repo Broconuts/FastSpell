@@ -66,7 +66,6 @@ class FastSpell:
         # TODO: use identical tokenization process to the one used in pipeline
         for answer in self.corpus:
             frequency_list.update(answer)
-        print(frequency_list)
         # return frequency list from tokenized word list
         return frequency_list
         
@@ -93,9 +92,9 @@ class FastSpell:
         else:
             model = FastText()
             # build the vocabulary
-            model.build_vocab(sentences=df['review'])
+            model.build_vocab(sentences=self.corpus)
             # train the model
-            model.train(corpus_file="data/imdb_reviews.txt", epochs=5, sg=1,
+            model.train(self.corpus, epochs=5, sg=1,
                         total_examples=model.corpus_count, 
                         total_words=model.corpus_total_words)
 
@@ -137,13 +136,13 @@ class FastSpell:
         error_dict = collections.defaultdict(list)
         missing_words = []
         with open("log.csv", "w", encoding="utf-8") as file:
-            logger = csv.writer()
+            logger = csv.writer(file)
             logger.writerow(["Correct Word",
                              "Error Candidate",
                              "Criterion that was not met"])
             # go through frequency list to find neighbors to the most frequent 
             #  (therefore likely correct) words
-            for word, frequency in frequency_list.most_common():
+            for word, frequency in self.frequency_list.most_common():
                 unmatched_criteria = []  # helper variable for logging
                 # only consider words that occur at least n times in the corpus 
                 # to be "correct" baselines
@@ -151,7 +150,7 @@ class FastSpell:
                     # TODO: tweak topn based on the average number of most 
                     # similar word vectors above the similarity_threshold
                     # generate list of nearest neighbors
-                    candidates = model.wv.most_similar(word, topn=25)
+                    candidates = self.embeddings.wv.most_similar(word, topn=25)
                     for word_candidate, score in candidates:
                         # if candidate has lower similarity score than specified 
                         #  threshold or is shorter than the specified
@@ -197,13 +196,12 @@ class FastSpell:
                         # typo, add typo-word pair to the error dict
                         # if one or more of the conditions was met, skip word
                         if unmatched_criteria:
-                            writer-writerow([word,
+                            logger.writerow([word,
                                             word_candidate,
                                             unmatched_criteria])
                             continue
                         error_dict[word_candidate].append(word)
-                    print(error_dict)
-
+        print(error_dict)
         return error_dict
 
 
