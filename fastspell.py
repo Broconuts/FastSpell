@@ -12,9 +12,28 @@ class FastSpell:
     """
     Error detection and spelling correction using FastText word embeddings to 
     generate a list of errors and their correct counterparts in a given corpus.
+    
+    Attributes:
+        corpus:
+        frequency_list:
+        embeddings:
+        dictionary_us:
+        dictionary_gb:
+        
+    Functions:
+        get_embeddings:
+        get_frequency_list:
+        load_corpus:
+        recognize_mistakes_in_corpus:
     """
 
     def __init__(self, path, pretrained: bool = False):
+        """
+        Initiates FastSpell with a location and a model?
+        
+        :param path: ehm? a path to something?
+        :param pretrained: to use a pretrained embedding?
+        """
         self.corpus = self.load_corpus(path)
         self.frequency_list = self.get_frequency_list()
         # TODO: implement a load_frequency_list function as an option
