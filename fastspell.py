@@ -5,6 +5,7 @@ import collections
 import enchant
 import nltk
 import pandas as pd
+
 from gensim.models.fasttext import FastText, load_facebook_vectors
 
 
@@ -12,21 +13,43 @@ class FastSpell:
     """
     Error detection and spelling correction using FastText word embeddings to 
     generate a list of errors and their correct counterparts in a given corpus.
+    
+    Attributes:
+        corpus:
+        frequency_list:
+        embeddings:
+        dictionary_us:
+        dictionary_gb:
+        
+    Functions:
+        get_embeddings:
+        get_frequency_list:
+        load_corpus:
+        recognize_mistakes_in_corpus:
     """
 
     def __init__(self, path, pretrained: bool = False):
+        """
+        Initiates FastSpell with a location and a model?
+        
+        :param path: ehm? a path to something?
+        :param pretrained: to use a pretrained embedding?
+        """
         self.corpus = self.load_corpus(path)
         self.frequency_list = self.get_frequency_list()
+        
         # TODO: implement a load_frequency_list function as an option
         if pretrained:
             self.embeddings = self.get_embeddings(path)
         else:
             # TODO: implement transfer-learning
             self.embeddings = self.get_embeddings(path, overwrite=False)
+            
         # TODO: implement multi-language support
         # load dictionaries
         self.dictionary_us = enchant.Dict('en-US')
         self.dictionary_gb = enchant.Dict('en-GB')
+        
         # generate error dictionary
         self.recognize_mistakes_in_corpus()
 
@@ -42,6 +65,7 @@ class FastSpell:
         # load in data
         df = pd.read_csv(path, encoding="utf-8")
         corpus = []
+        
         # TODO: use identical tokenization process to the one used in pipeline
         # tokenize each answer into a list of words
         for text in df["answers"]:
@@ -49,6 +73,7 @@ class FastSpell:
             for word in text.split():
                 answer.append(word)
             corpus.append(answer)
+            
         return corpus
 
 
@@ -66,6 +91,7 @@ class FastSpell:
         # TODO: use identical tokenization process to the one used in pipeline
         for answer in self.corpus:
             frequency_list.update(answer)
+            
         # return frequency list from tokenized word list
         return frequency_list
         
@@ -87,6 +113,7 @@ class FastSpell:
         """
         # check if embeddings already exist to skip redundant training
         overwrite = False
+        
         if not overwrite and len(os.listdir("models")) != 0:
             model = FastText.load("models/fasttext.model")
         else:
@@ -99,6 +126,7 @@ class FastSpell:
                         total_words=model.corpus_total_words)
 
             model.save("models/fasttext.model")
+            
         return model
 
 
@@ -135,15 +163,18 @@ class FastSpell:
         #  new keys
         error_dict = collections.defaultdict(list)
         missing_words = []
+        
         with open("log.csv", "w", encoding="utf-8") as file:
             logger = csv.writer(file)
             logger.writerow(["Correct Word",
                              "Error Candidate",
                              "Criterion that was not met"])
+            
             # go through frequency list to find neighbors to the most frequent 
             #  (therefore likely correct) words
             for word, frequency in self.frequency_list.most_common():
                 unmatched_criteria = []  # helper variable for logging
+                
                 # only consider words that occur at least n times in the corpus 
                 # to be "correct" baselines
                 if frequency > frequency_threshold:
@@ -151,6 +182,7 @@ class FastSpell:
                     # similar word vectors above the similarity_threshold
                     # generate list of nearest neighbors
                     candidates = self.embeddings.wv.most_similar(word, topn=25)
+                    
                     for word_candidate, score in candidates:
                         # if candidate has lower similarity score than specified 
                         #  threshold or is shorter than the specified
@@ -200,7 +232,9 @@ class FastSpell:
                                             word_candidate,
                                             unmatched_criteria])
                             continue
+                        
                         error_dict[word_candidate].append(word)
+                        
         print(error_dict)
         return error_dict
 
