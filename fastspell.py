@@ -5,6 +5,7 @@ import collections
 import enchant
 import nltk
 import pandas as pd
+from tqdm import tqdm
 
 from gensim.models.fasttext import FastText, load_facebook_vectors
 
@@ -40,12 +41,7 @@ class FastSpell:
         self.corpus = self.load_corpus(path)
         self.frequency_list = self.get_frequency_list()
         
-        # TODO: implement a load_frequency_list function as an option
-        if pretrained:
-            self.embeddings = self.get_embeddings(path)
-        else:
-            # TODO: implement transfer-learning
-            self.embeddings = self.get_embeddings(path, overwrite=False)
+        self.embeddings = self.get_embeddings(path, overwrite=False)
             
         # TODO: implement multi-language support
         # load dictionaries
@@ -70,6 +66,7 @@ class FastSpell:
         
         # TODO: use identical tokenization process to the one used in pipeline
         # tokenize each answer into a list of words
+        print("Loading text corpus.")
         for text in df["answers"]:
             answer = []
             for word in text.split():
@@ -87,9 +84,9 @@ class FastSpell:
         """
         # clean data and count individual words
         frequency_list = collections.Counter()
-        frequency_list.clear()
         
         # TODO: use identical tokenization process to the one used in pipeline
+        print("Generate frequency list.")
         for answer in self.corpus:
             frequency_list.update(answer)
             
@@ -113,8 +110,11 @@ class FastSpell:
         overwrite = False
         
         if not overwrite and len(os.listdir("models")) != 0:
+            print("Loading existing word embeddings.")
             model = FastText.load("models/fasttext.model")
+            print("Loading successful!")
         else:
+            print("Generating word embeddings.")
             model = FastText()
             # build the vocabulary
             model.build_vocab(sentences=self.corpus)
@@ -124,6 +124,7 @@ class FastSpell:
                         total_words=model.corpus_total_words)
 
             model.save("models/fasttext.model")
+            print("Generation successful!")
             
         return model
 
@@ -157,7 +158,8 @@ class FastSpell:
                              "Criterion that was not met"])
             
             # go through frequency list to find neighbors to the most frequent (therefore likely correct) words
-            for word, frequency in self.frequency_list.most_common():
+            print("Generating error dictionary.")
+            for word, frequency in tqdm(self.frequency_list.most_common(), bar_format='{l_bar}{bar:50}{r_bar}{bar:-50b}'):
                 unmatched_criteria = []  # helper variable for logging
                 
                 # only consider words that occur at least n times in the corpus to be "correct" baselines
