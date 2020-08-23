@@ -129,10 +129,13 @@ class FastSpell:
 
         #     model.save("models/fasttext.model")
         #     print("Generation successful!")
-        print("Loading facebook model.")
-        model = load_facebook_model("models/wiki.en.bin")
-        print("Successfully loaded model!")
-            
+        print("Loading pretrained model...")
+        model = load_facebook_model("models\wiki.en.bin")
+        model.build_vocab(sentences=self.corpus, update=True)
+        print("Successfully loaded pretrained model!\nStart transfer-learning...")
+        model.train(sentences=self.corpus, total_examples=len(self.corpus), epochs=5)
+        print("Successfully finished transfer learning!")
+
         return model
 
 
@@ -174,7 +177,7 @@ class FastSpell:
                 if frequency > frequency_threshold:
                     # TODO: tweak topn based on the average number of most similar word vectors above the 
                     #  similarity_threshold generate list of nearest neighbors
-                    candidates = self.embeddings.wv.most_similar(word, topn=50)
+                    candidates = self.embeddings.wv.most_similar(word, topn=25)
                     
                     for word_candidate, score in candidates:
                         # if candidate has lower similarity score than specified threshold or is shorter than the 
