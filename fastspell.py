@@ -7,7 +7,7 @@ import nltk
 import pandas as pd
 from tqdm import tqdm
 
-from gensim.models.fasttext import FastText, load_facebook_vectors
+from gensim.models.fasttext import FastText, load_facebook_vectors, load_facebook_model
 
 
 class FastSpell:
@@ -72,6 +72,10 @@ class FastSpell:
             for word in text.split():
                 answer.append(word)
             corpus.append(answer)
+
+        # enrich corpus with a high quantity of correctly spelled words
+        # TODO: evaluate computation cost of this feature
+        # TODO: evaluate how beneficial this is
             
         return corpus
 
@@ -106,25 +110,28 @@ class FastSpell:
         :param overwrite: If a trained model already exists but the user still wants to train one from scratch, this is 
                           true.
         """
-        # check if embeddings already exist to skip redundant training
-        overwrite = False
+        # # check if embeddings already exist to skip redundant training
+        # overwrite = False
         
-        if not overwrite and len(os.listdir("models")) != 0:
-            print("Loading existing word embeddings.")
-            model = FastText.load("models/fasttext.model")
-            print("Loading successful!")
-        else:
-            print("Generating word embeddings.")
-            model = FastText()
-            # build the vocabulary
-            model.build_vocab(sentences=self.corpus)
-            # train the model
-            model.train(self.corpus, epochs=5, sg=1,
-                        total_examples=model.corpus_count, 
-                        total_words=model.corpus_total_words)
+        # if not overwrite and len(os.listdir("models")) != 0:
+        #     print("Loading existing word embeddings.")
+        #     model = FastText.load("models/fasttext.model")
+        #     print("Loading successful!")
+        # else:
+        #     print("Generating word embeddings.")
+        #     model = FastText()
+        #     # build the vocabulary
+        #     model.build_vocab(sentences=self.corpus)
+        #     # train the model
+        #     model.train(self.corpus, epochs=5, sg=1,
+        #                 total_examples=model.corpus_count, 
+        #                 total_words=model.corpus_total_words)
 
-            model.save("models/fasttext.model")
-            print("Generation successful!")
+        #     model.save("models/fasttext.model")
+        #     print("Generation successful!")
+        print("Loading facebook model.")
+        model = load_facebook_model("models/wiki.en.bin")
+        print("Successfully loaded model!")
             
         return model
 
@@ -159,14 +166,15 @@ class FastSpell:
             
             # go through frequency list to find neighbors to the most frequent (therefore likely correct) words
             print("Generating error dictionary.")
-            for word, frequency in tqdm(self.frequency_list.most_common(), bar_format='{l_bar}{bar:50}{r_bar}{bar:-50b}'):
+            for word, frequency in tqdm(self.frequency_list.most_common(), 
+                                        bar_format='{l_bar}{bar:50}{r_bar}{bar:-50b}'):
                 unmatched_criteria = []  # helper variable for logging
                 
                 # only consider words that occur at least n times in the corpus to be "correct" baselines
                 if frequency > frequency_threshold:
                     # TODO: tweak topn based on the average number of most similar word vectors above the 
                     #  similarity_threshold generate list of nearest neighbors
-                    candidates = self.embeddings.wv.most_similar(word, topn=25)
+                    candidates = self.embeddings.wv.most_similar(word, topn=50)
                     
                     for word_candidate, score in candidates:
                         # if candidate has lower similarity score than specified threshold or is shorter than the 
