@@ -2,6 +2,7 @@ import re
 import os
 import csv
 import collections
+import time
 import enchant
 import nltk
 import pandas as pd
@@ -39,9 +40,11 @@ class FastSpell:
         :param path: The location of the text document containing the text corpus that is to be spell-checked
         """
         self.corpus = self.load_corpus(path)
-        self.frequency_list = self.get_frequency_list()
         
         self.embeddings = self.get_embeddings(path, overwrite=False)
+
+        
+        self.frequency_list = self.get_frequency_list()
             
         # TODO: implement multi-language support
         # load dictionaries
@@ -49,7 +52,7 @@ class FastSpell:
         self.dictionary_gb = enchant.Dict('en-GB')
         
         # generate error dictionary
-        self.error_dict = self.recognize_mistakes_in_corpus()
+        self.error_dict = self.v2_recognize_mistakes_in_corpus()
 
 
     def load_corpus(self, path: str) -> list:
@@ -82,9 +85,9 @@ class FastSpell:
 
     def get_frequency_list(self) -> collections.Counter:
         """
-        Generate a dictionary containing the frequency of every word in the given corpus.
+        Generate a dictionary containing the frequency of every word in our newly trained word embeddings.
 
-        :returns: A frequency list for a given text corpus.
+        :returns: A frequency list for the word embeddings.
         """
         # clean data and count individual words
         frequency_list = collections.Counter()
@@ -129,12 +132,19 @@ class FastSpell:
 
         #     model.save("models/fasttext.model")
         #     print("Generation successful!")
+
+        """
         print("Loading pretrained model...")
         model = load_facebook_model("models\wiki.en.bin")
         model.build_vocab(sentences=self.corpus, update=True)
         print("Successfully loaded pretrained model!\nStart transfer-learning...")
         model.train(sentences=self.corpus, total_examples=len(self.corpus), epochs=5)
         print("Successfully finished transfer learning!")
+        model.save("models/transfer_learned/big_model.model")
+        """
+        print("Loading word embeddings...")
+        model = FastText.load("models/transfer_learned/big_model.model")
+        print("Word embeddings loaded!")
 
         return model
 
@@ -226,6 +236,67 @@ class FastSpell:
         return error_dict
 
 
+    def v2_recognize_mistakes_in_corpus(self, similarity_threshold: float = 0.96, frequency_threshold: int = 10, 
+                                        character_minimum: int = 3, identical_starting_letter: bool = True) -> dict:
+        """
+        Check if a given word passes the criteria on whether or it constitutes a mistake.
+
+        :param similarity_threshold: The minimum similarity between the error candidate and the correction candidate for
+                                     them to be considered related.
+        :param frequency_threshold: The maximum amount of occurrences of a word we look for "mistakes" of for.
+        :param character_minimum: A mistake candidate must exceed this number of characters. A character minimum is 
+                                  useful in preserving domain-specific abbreviations and acronyms as non-errors.
+        :param identical_starting_letter: Typos usually don't occur with the first letter of a word. To limit false
+                                          positives in mistake detection, this condition can either be taken into
+                                          consideration (variable = True) or dismissed (variable = False).
+        """
+        # use defaultdict rather than python's default dict for easily adding new keys
+        error_dict = collections.defaultdict(list)
+        # iterate over frequency list in reverse (i.e. words with lowest frequency first)
+        for word, frequency in tqdm(reversed(self.frequency_list.most_common()), 
+                                        bar_format='{l_bar}{bar:50}{r_bar}{bar:-50b}'):
+            # if error candidate appears too often in the corpus, do not consider it further as an error
+            if frequency > frequency_threshold:
+                continue
+            # if word is too short, don't consider it an error candidate
+            if len(word) < character_minimum:
+                continue            
+            # if word candidate can be found in a dictionary, do not consider it a typo
+            # TODO: add check that the word is not a plural (i.e. added "s" in the end) of known word
+            # TODO: deal with stuff like "centricity" where only "centric" is in the dict and "limitlessly" 
+            #  where only "limitless" is in the dict
+            if (self.dictionary_gb.check(word) or self.dictionary_us.check(word)):
+                continue
+
+            error_dict[word].append(None)
+            
+            candidates = self.embeddings.wv.most_similar(word, topn=25)
+                    
+            for word_candidate, score in candidates:
+                # if candidate has lower similarity score than specified threshold or is shorter than the 
+                #  specified character minimum, skip candidate
+                if score < similarity_threshold:
+                    continue
+                # if we specified the identical-starting-letter criterion, skip this word candidate if it does 
+                #  not fulfill it
+                if identical_starting_letter and word[0] != word_candidate[0]:
+                    continue
+                # if Levenshtein distance of word candidate to original word is larger than 2 for words longer 
+                #  than four characters or 1 for words with fewer, do not consider them related as they are not
+                #  a typo of the original word
+                if nltk.edit_distance(word, word_candidate) <= (1 if len(word_candidate) <= 4 else 2): 
+                    continue
+                # if the candidate matches all the criteria for being a typo, add typo-word pair to the error 
+                #  dict                
+                error_dict[word].append(word_candidate)
+                        
+        print(error_dict)
+        return error_dict
+
+
+
 if __name__ == '__main__':
     """Immediate testing."""
+    start_time = time.time()
     fs = FastSpell("data/pnlp_data.csv")
+    print("Error indexing concluded after", str((time.time() - start_time) / 60), "minutes")
