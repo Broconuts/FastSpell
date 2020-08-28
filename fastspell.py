@@ -41,7 +41,7 @@ class FastSpell:
         """
         self.corpus = self.load_corpus(path)
         
-        self.embeddings = self.get_embeddings(path, overwrite=False)
+        # self.embeddings = self.get_embeddings(path, overwrite=False)
 
         
         self.frequency_list = self.get_frequency_list()
@@ -52,7 +52,7 @@ class FastSpell:
         self.dictionary_gb = enchant.Dict('en-GB')
         
         # generate error dictionary
-        self.error_dict = self.v2_recognize_mistakes_in_corpus()
+        # self.error_dict = self.v2_recognize_mistakes_in_corpus()
 
 
     def load_corpus(self, path: str) -> list:
@@ -72,15 +72,31 @@ class FastSpell:
         print("Loading text corpus.")
         for text in df["answers"]:
             answer = []
-            for word in text.split():
-                answer.append(word)
+            for token in text.split():
+                answer.append(self.clean_token(token))
             corpus.append(answer)
 
-        # enrich corpus with a high quantity of correctly spelled words
-        # TODO: evaluate computation cost of this feature
-        # TODO: evaluate how beneficial this is
-            
         return corpus
+
+
+    def clean_token(self, token: str) -> str:
+        """
+        Cleans a given token by removing special characters and making them lowercase.
+
+        :param token: The token that is to be cleaned.
+        :returns: A cleaned version of the given token.
+        """
+        clean_token = ""
+        for i, char in enumerate(list(token)):
+            if re.match(r"\W", char):
+                # if character is not one that might carry meaning for the word, do not add it to the clean token
+                if char not in ["'", "-"]:
+                    continue
+                # if apostrophe is not in a valid position (i.e. the second to last token in the word), do not add it
+                elif char == "'" and i != len(list(token)) - 2:
+                    continue
+            clean_token += char.lower()
+        return clean_token
 
 
     def get_frequency_list(self) -> collections.Counter:
