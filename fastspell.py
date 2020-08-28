@@ -41,7 +41,7 @@ class FastSpell:
         """
         self.corpus = self.load_corpus(path)
         
-        # self.embeddings = self.get_embeddings(path, overwrite=False)
+        self.embeddings = self.get_embeddings(path, overwrite=False)
 
         
         self.frequency_list = self.get_frequency_list()
@@ -129,190 +129,111 @@ class FastSpell:
         :param overwrite: If a trained model already exists but the user still wants to train one from scratch, this is 
                           true.
         """
-        # # check if embeddings already exist to skip redundant training
-        # overwrite = False
-        
-        # if not overwrite and len(os.listdir("models")) != 0:
-        #     print("Loading existing word embeddings.")
-        #     model = FastText.load("models/fasttext.model")
-        #     print("Loading successful!")
-        # else:
-        #     print("Generating word embeddings.")
-        #     model = FastText()
-        #     # build the vocabulary
-        #     model.build_vocab(sentences=self.corpus)
-        #     # train the model
-        #     model.train(self.corpus, epochs=5, sg=1,
-        #                 total_examples=model.corpus_count, 
-        #                 total_words=model.corpus_total_words)
-
-        #     model.save("models/fasttext.model")
-        #     print("Generation successful!")
-
-        """
-        print("Loading pretrained model...")
-        model = load_facebook_model("models\wiki.en.bin")
-        model.build_vocab(sentences=self.corpus, update=True)
-        print("Successfully loaded pretrained model!\nStart transfer-learning...")
-        model.train(sentences=self.corpus, total_examples=len(self.corpus), epochs=5)
-        print("Successfully finished transfer learning!")
-        model.save("models/transfer_learned/big_model.model")
-        """
-        print("Loading word embeddings...")
-        model = FastText.load("models/transfer_learned/big_model.model")
-        print("Word embeddings loaded!")
+        if overwrite or len(os.listdir("models/transfer_learned")) == 0:
+            print("Loading pretrained model...")
+            model = load_facebook_model("models\wiki.en.bin")
+            model.build_vocab(sentences=self.corpus, update=True)
+            print("Successfully loaded pretrained model!\nStart transfer-learning...")
+            model.train(sentences=self.corpus, total_examples=len(self.corpus), epochs=5)
+            print("Successfully finished transfer learning!")
+            model.save("models/transfer_learned/big_model.model")
+        else:
+            print("Loading word embeddings...")
+            model = FastText.load("models/transfer_learned/big_model.model")
+            print("Word embeddings loaded!")
 
         return model
 
-
-    def recognize_mistakes_in_corpus(self, similarity_threshold: float = 0.96, frequency_threshold: int = 10, 
-                                        character_minimum: int = 3, identical_starting_letter: bool = True) -> dict:
+    
+    def is_error(self, word: str, frequency_threshold: int = 10, character_minimum: int = 3) -> bool:
         """
         Check if a given word passes the criteria on whether or it constitutes a mistake.
 
-        :param similarity_threshold: If the similarity between the vector for the less frequent word (i.e. the mistake 
-                                     candidate) and the one for the more frequent word is lower than this threshold,
-                                     do not consider the words related and dismiss mistake candidate.
+        :param word: The word that is to be checked for being an error
         :param frequency_threshold: The minimum amount of occurrences of a word we look for "mistakes" of for.
         :param character_minimum: A mistake candidate must exceed this number of characters. A character minimum is 
                                   useful in preserving domain-specific abbreviations and acronyms as non-errors.
-        :param identical_starting_letter: Typos usually don't occur with the first letter of a word. To limit false
-                                          positives in mistake detection, this condition can either be taken into
-                                          consideration (variable = True) or dismissed (variable = False).
         """
-        dictionary_gb = enchant.Dict('en-GB')
-        dictionary_us = enchant.Dict('en-US')
-
-        # use defaultdict rather than python's default dict for easily adding new keys
-        error_dict = collections.defaultdict(list)
-        missing_words = []
+        # clean token to ensure uniformity with the frequency list
+        word = self.clean_token(word)
+        # if error candidate appears too often in the corpus, do not consider it further as an error
+        if self.frequency_list[word] > frequency_threshold:
+            return False
+        # if word is too short, don't consider it an error candidate
+        if len(word) < character_minimum:
+            return False            
+        # if word candidate can be found in a dictionary, do not consider it a typo
+        # TODO: add check that the word is not a plural (i.e. added "s" in the end) of known word
+        # TODO: deal with stuff like "centricity" where only "centric" is in the dict and "limitlessly" 
+        #  where only "limitless" is in the dict
+        if (self.dictionary_gb.check(word) or self.dictionary_us.check(word)):
+            False
         
-        with open("log.csv", "w", encoding="utf-8") as file:
-            logger = csv.writer(file)
-            logger.writerow(["Correct Word",
-                             "Error Candidate",
-                             "Criterion that was not met"])
-            
-            # go through frequency list to find neighbors to the most frequent (therefore likely correct) words
-            print("Generating error dictionary.")
-            for word, frequency in tqdm(self.frequency_list.most_common(), 
-                                        bar_format='{l_bar}{bar:50}{r_bar}{bar:-50b}'):
-                unmatched_criteria = []  # helper variable for logging
-                
-                # only consider words that occur at least n times in the corpus to be "correct" baselines
-                if frequency > frequency_threshold:
-                    # TODO: tweak topn based on the average number of most similar word vectors above the 
-                    #  similarity_threshold generate list of nearest neighbors
-                    candidates = self.embeddings.wv.most_similar(word, topn=25)
-                    
-                    for word_candidate, score in candidates:
-                        # if candidate has lower similarity score than specified threshold or is shorter than the 
-                        #  specified character minimum, we can stop checking
-                        if score < similarity_threshold:
-                            logger.writerow([word,
-                                             word_candidate,
-                                             "similarity_threshold"])
-                            break
-                        if len(word_candidate) < character_minimum:
-                            unmatched_criteria.append("word_length")
-                            # continue
-                        # if we specified the identical-starting-letter criterion, skip this word candidate if it does 
-                        #  not fulfill it
-                        if identical_starting_letter and word[0] != word_candidate[0]: 
-                            unmatched_criteria.append("identical_first_letter")
-                            # continue
-                        # if word candidate can be found in a dictionary, do not consider it a typo
-                        # TODO: add check that the word is not a plural (i.e. added "s" in the end) of known word
-                        # TODO: deal with stuff like "centricity" where only "centric" is in the dict and "limitlessly" 
-                        #  where only "limitless" is in the dict
-                        if (dictionary_gb.check(word_candidate) or 
-                            dictionary_us.check(word_candidate)): 
-                            unmatched_criteria.append("dict_check")
-                            # continue
-                        # if Levenshtein distance of word candidate to original word is larger than 2 for words longer 
-                        #  than four characters or 1 for words with fewer, do not consider them related as they are not
-                        #  a typo of the original word
-                        if nltk.edit_distance(word, word_candidate) <= (1 if len(word_candidate) <= 4 else 2): 
-                            unmatched_criteria.append("edit_distance")
-                            # continue
-                        # if error occurs only twice or fewer times, do not consider it an error
-                        # if frequency_list[word_candidate] >= 2: continue
-                        # if the candidate matches all the criteria for being a typo, add typo-word pair to the error 
-                        #  dict
-                        # if one or more of the conditions was met, skip word
-                        if unmatched_criteria:
-                            logger.writerow([word,
-                                            word_candidate,
-                                            unmatched_criteria])
-                            continue
-                        
-                        error_dict[word_candidate].append(word)
-                        
-        print(error_dict)
-        return error_dict
+        # if none of the criteria are met, consider the word an error
+        return True
 
 
-    def v2_recognize_mistakes_in_corpus(self, similarity_threshold: float = 0.96, frequency_threshold: int = 10, 
-                                        character_minimum: int = 3, identical_starting_letter: bool = True) -> dict:
+    def find_correction_suggestion(self, error_word: str, similarity_threshold: float = 0.96, 
+                                    identical_starting_letter: bool = True) -> list:
         """
-        Check if a given word passes the criteria on whether or it constitutes a mistake.
+        Attempts to find a correct suggestion for an incorrect word.
 
+        :param error_word: The word for which we need to find a correction.
         :param similarity_threshold: The minimum similarity between the error candidate and the correction candidate for
                                      them to be considered related.
-        :param frequency_threshold: The maximum amount of occurrences of a word we look for "mistakes" of for.
-        :param character_minimum: A mistake candidate must exceed this number of characters. A character minimum is 
-                                  useful in preserving domain-specific abbreviations and acronyms as non-errors.
         :param identical_starting_letter: Typos usually don't occur with the first letter of a word. To limit false
                                           positives in mistake detection, this condition can either be taken into
                                           consideration (variable = True) or dismissed (variable = False).
+        :returns: A list of strings that could ne the correct version of the word the input string was supposed to be.
         """
-        # use defaultdict rather than python's default dict for easily adding new keys
-        error_dict = collections.defaultdict(list)
-        # iterate over frequency list in reverse (i.e. words with lowest frequency first)
-        for word, frequency in tqdm(reversed(self.frequency_list.most_common()), 
-                                        bar_format='{l_bar}{bar:50}{r_bar}{bar:-50b}'):
-            # if error candidate appears too often in the corpus, do not consider it further as an error
-            if frequency > frequency_threshold:
+        candidates = self.embeddings.wv.most_similar(error_word, topn=25)
+        suggestions = []
+        for word_candidate, score in candidates:
+            # if candidate has lower similarity score than specified threshold or is shorter than the 
+            #  specified character minimum, skip candidate
+            if score < similarity_threshold:
                 continue
-            # if word is too short, don't consider it an error candidate
-            if len(word) < character_minimum:
-                continue            
-            # if word candidate can be found in a dictionary, do not consider it a typo
-            # TODO: add check that the word is not a plural (i.e. added "s" in the end) of known word
-            # TODO: deal with stuff like "centricity" where only "centric" is in the dict and "limitlessly" 
-            #  where only "limitless" is in the dict
-            if (self.dictionary_gb.check(word) or self.dictionary_us.check(word)):
+            # if we specified the identical-starting-letter criterion, skip this word candidate if it does 
+            #  not fulfill it
+            if identical_starting_letter and word[0] != word_candidate[0]:
                 continue
+            # if Levenshtein distance of word candidate to original word is larger than 2 for words longer 
+            #  than four characters or 1 for words with fewer, do not consider them related as they are not
+            #  a typo of the original word
+            if nltk.edit_distance(word, word_candidate) <= (1 if len(word_candidate) <= 4 else 2): 
+                continue
+            # if the candidate matches all the criteria for being a typo, add typo-word pair to the error 
+            #  dict                
+            suggestions.append(word_candidate)
 
-            error_dict[word].append(None)
-            
-            candidates = self.embeddings.wv.most_similar(word, topn=25)
-                    
-            for word_candidate, score in candidates:
-                # if candidate has lower similarity score than specified threshold or is shorter than the 
-                #  specified character minimum, skip candidate
-                if score < similarity_threshold:
-                    continue
-                # if we specified the identical-starting-letter criterion, skip this word candidate if it does 
-                #  not fulfill it
-                if identical_starting_letter and word[0] != word_candidate[0]:
-                    continue
-                # if Levenshtein distance of word candidate to original word is larger than 2 for words longer 
-                #  than four characters or 1 for words with fewer, do not consider them related as they are not
-                #  a typo of the original word
-                if nltk.edit_distance(word, word_candidate) <= (1 if len(word_candidate) <= 4 else 2): 
-                    continue
-                # if the candidate matches all the criteria for being a typo, add typo-word pair to the error 
-                #  dict                
-                error_dict[word].append(word_candidate)
-                        
-        print(error_dict)
-        return error_dict
+        return suggestions
 
+    def check_and_correct(self, word: str, verbose: bool = False) -> str:
+        """
+        Checks if a given word is an error and - if so - replaces it with the most likely suggested correction. If the word
+        is considered an error but no suitable correction can be found, return the original word.
+
+        :param word: The word that is to be checked and corrected.
+        :param verbose: If true, provide additional information about the correction process on the console.
+        :returns: A string that is either the original word or a corrected version of the word.
+        """
+        if self.is_error(word):
+            if verbose:
+                print(f"Spelling error found: {word}")
+            suggested_spellings = self.find_correction_suggestion(word)
+            if verbose:
+                print("Suggestions for correction:")
+                print(suggested_spellings)
+            if suggested_spellings:
+                return suggested_spellings[0]
+        return word
 
 
 if __name__ == '__main__':
     """Immediate testing."""
     start_time = time.time()
     fs = FastSpell("data/pnlp_data.csv")
-    print("Error indexing concluded after", str((time.time() - start_time) / 60), "minutes")
+    print("FastSpell object generated after", str(time.time() - start_time), "seconds.")
+    for answer in fs.corpus:
+        for word in answer:
+            fs.check_and_correct(word, verbose=True)
